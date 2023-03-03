@@ -368,6 +368,30 @@ namespace NStore.Persistence.Tests
             Assert.Equal(1, tape.Length);
             Assert.Equal("c", tape[0]);
         }
+
+        [Fact]
+        public async Task read_all_forward_from_last_position()
+        {
+            var positionAfterLastExisting = 6L;
+
+            var recordedPosition = -1L;
+            var tape = new LambdaSubscription(chunk =>
+            {
+                Assert.Fail("Expected no chunks");
+                return Task.FromResult(false);
+            })
+            {
+                OnComplete = position =>
+                {
+                    recordedPosition = position;
+                    return Task.CompletedTask;
+                }
+            };
+
+            await Store.ReadAllAsync(positionAfterLastExisting, tape).ConfigureAwait(false);
+
+            Assert.Equal(positionAfterLastExisting, recordedPosition);
+        }
     }
 
     public class read_last_position : BasePersistenceTest
@@ -777,6 +801,39 @@ namespace NStore.Persistence.Tests
             await client.Poll(5000).ConfigureAwait(false);
 
             Assert.Equal(expected, recorder.Length);
+        }
+
+        [Fact]
+        public async Task multiple_polls_with_no_new_data_should_keep_last_position()
+        {
+            await Store.AppendAsync("a", 1, "1").ConfigureAwait(false);
+            await Store.AppendAsync("a", 2, "2").ConfigureAwait(false);
+            await Store.AppendAsync("a", 3, "3").ConfigureAwait(false);
+
+            var start = 3;
+
+            var lastRecordedPosition = -1L;
+            var tape = new LambdaSubscription(chunk =>
+            {
+                Assert.Fail("Expected no chunks");
+                return Task.FromResult(false);
+            })
+            {
+                OnComplete = position =>
+                {
+                    lastRecordedPosition = position;
+                    return Task.CompletedTask;
+                }
+            };
+            var client = new PollingClient(Store, start, tape, LoggerFactory);
+
+            await client.Poll(5000).ConfigureAwait(false);
+
+            Assert.Equal(3, lastRecordedPosition);
+
+            await client.Poll(5000).ConfigureAwait(false);
+
+            Assert.Equal(3, lastRecordedPosition);
         }
     }
 
